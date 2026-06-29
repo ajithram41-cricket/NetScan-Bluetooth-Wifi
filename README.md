@@ -199,6 +199,10 @@ Pull requests welcome. For major changes, open an issue first.
 5. Open a Pull Request
 
 ---
+## 👤 Author
+
+**Ajithram**
+- GitHub: [@ajithram41-cricket]((https://github.com/ajithram41-cricket))
 
 ## 📄 License
 
