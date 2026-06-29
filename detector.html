@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>NetScan — WiFi & Bluetooth Detector</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:       #080B14;
+    --surface:  #0D1220;
+    --border:   #1A2035;
+    --cyan:     #00D4FF;
+    --cyan-dim: rgba(0,212,255,0.12);
+    --violet:   #8B5CF6;
+    --violet-dim: rgba(139,92,246,0.12);
+    --green:    #22C55E;
+    --red:      #EF4444;
+    --amber:    #F59E0B;
+    --text:     #E2E8F0;
+    --muted:    #64748B;
+    --mono:     'JetBrains Mono', monospace;
+    --sans:     'Inter', sans-serif;
+  }
+
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--sans); }
+
+  /* ── Layout ── */
+  .app { display: flex; flex-direction: column; min-height: 100vh; }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 32px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(8,11,20,0.8);
+    backdrop-filter: blur(12px);
+    position: sticky; top: 0; z-index: 100;
+  }
+
+  .logo { display: flex; align-items: center; gap: 10px; }
+  .logo-icon {
+    width: 36px; height: 36px; border-radius: 8px;
+    background: linear-gradient(135deg, var(--cyan), var(--violet));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+  }
+  .logo-text { font-family: var(--mono); font-weight: 700; font-size: 18px; letter-spacing: 2px; }
+  .logo-text span { color: var(--cyan); }
+
+  .header-status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); font-family: var(--mono); }
+  .pulse-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--green);
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+  @keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.6); }
+    50% { box-shadow: 0 0 0 6px rgba(34,197,94,0); }
+  }
+
+  main { flex: 1; padding: 32px; max-width: 1300px; margin: 0 auto; width: 100%; }
+
+  /* ── Controls bar ── */
+  .controls {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 28px; flex-wrap: wrap;
+  }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer;
+    font-family: var(--mono); font-size: 13px; font-weight: 600; letter-spacing: 0.5px;
+    transition: all 0.2s;
+  }
+  .btn-primary {
+    background: var(--cyan); color: #000;
+  }
+  .btn-primary:hover { background: #33ddff; transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0,212,255,0.35); }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+  .btn-secondary {
+    background: transparent; color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover { border-color: var(--muted); background: var(--surface); }
+
+  .btn-stop {
+    background: transparent; color: var(--red);
+    border: 1px solid rgba(239,68,68,0.4);
+  }
+  .btn-stop:hover { background: rgba(239,68,68,0.1); border-color: var(--red); }
+
+  .scan-indicator {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 12px; color: var(--cyan);
+    margin-left: auto;
+    opacity: 0; transition: opacity 0.3s;
+  }
+  .scan-indicator.active { opacity: 1; }
+  .scan-spin {
+    width: 14px; height: 14px; border: 2px solid var(--cyan-dim);
+    border-top-color: var(--cyan); border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Grid ── */
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+  /* ── Panel ── */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+
+  .panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .panel-title {
+    display: flex; align-items: center; gap: 12px;
+  }
+
+  .panel-icon {
+    width: 40px; height: 40px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center; font-size: 18px;
+  }
+  .icon-wifi { background: var(--cyan-dim); }
+  .icon-bt   { background: var(--violet-dim); }
+
+  .panel-label h2 { font-size: 15px; font-weight: 600; }
+  .panel-label p  { font-size: 11px; color: var(--muted); font-family: var(--mono); margin-top: 2px; }
+
+  .panel-count {
+    font-family: var(--mono); font-size: 28px; font-weight: 700;
+  }
+  .panel-count.wifi { color: var(--cyan); }
+  .panel-count.bt   { color: var(--violet); }
+
+  /* ── Radar ── */
+  .radar-wrap {
+    display: flex; justify-content: center; padding: 28px 0 20px;
+    position: relative;
+  }
+  .radar {
+    position: relative; width: 160px; height: 160px;
+  }
+  .radar-ring {
+    position: absolute; border-radius: 50%; border: 1px solid;
+    transform: translate(-50%, -50%); top: 50%; left: 50%;
+    animation: radar-expand 2.4s ease-out infinite;
+    opacity: 0;
+  }
+  .radar-ring.wifi { border-color: var(--cyan); }
+  .radar-ring.bt   { border-color: var(--violet); }
+  .radar-ring:nth-child(1) { width: 50px; height: 50px; animation-delay: 0s; }
+  .radar-ring:nth-child(2) { width: 90px; height: 90px; animation-delay: 0.6s; }
+  .radar-ring:nth-child(3) { width: 130px; height: 130px; animation-delay: 1.2s; }
+  .radar-ring:nth-child(4) { width: 160px; height: 160px; animation-delay: 1.8s; }
+
+  .radar-ring.idle { animation: none; opacity: 0.12; }
+
+  @keyframes radar-expand {
+    0%   { opacity: 0.8; transform: translate(-50%, -50%) scale(0.4); }
+    100% { opacity: 0;   transform: translate(-50%, -50%) scale(1); }
+  }
+
+  .radar-center {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 36px; height: 36px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+  }
+  .radar-center.wifi { background: var(--cyan-dim); border: 1px solid var(--cyan); }
+  .radar-center.bt   { background: var(--violet-dim); border: 1px solid var(--violet); }
+
+  /* ── Device List ── */
+  .device-list { flex: 1; padding: 0 16px 16px; overflow-y: auto; max-height: 340px; }
+  .device-list::-webkit-scrollbar { width: 4px; }
+  .device-list::-webkit-scrollbar-track { background: transparent; }
+  .device-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  .device-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px; border-radius: 10px; margin-bottom: 6px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid transparent;
+    transition: all 0.2s;
+    animation: slide-in 0.3s ease;
+  }
+  @keyframes slide-in {
+    from { opacity: 0; transform: translateX(-10px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  .device-item:hover { border-color: var(--border); background: rgba(255,255,255,0.04); }
+
+  .device-signal {
+    display: flex; flex-direction: column; gap: 2px; flex-shrink: 0;
+  }
+  .signal-bar {
+    width: 4px; border-radius: 2px;
+    background: var(--border);
+  }
+  .signal-bars { display: flex; align-items: flex-end; gap: 2px; height: 20px; }
+  .signal-bars .bar { width: 5px; border-radius: 2px 2px 0 0; background: var(--border); transition: background 0.3s; }
+  .signal-bars .bar.on-wifi { background: var(--cyan); }
+  .signal-bars .bar.on-bt   { background: var(--violet); }
+  .bar:nth-child(1) { height: 6px; }
+  .bar:nth-child(2) { height: 10px; }
+  .bar:nth-child(3) { height: 14px; }
+  .bar:nth-child(4) { height: 18px; }
+
+  .device-info { flex: 1; min-width: 0; }
+  .device-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .device-meta { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-top: 2px; display: flex; gap: 8px; flex-wrap: wrap; }
+
+  .device-rssi {
+    font-family: var(--mono); font-size: 12px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .rssi-strong { color: var(--green); }
+  .rssi-medium { color: var(--amber); }
+  .rssi-weak   { color: var(--red); }
+
+  .badge {
+    font-family: var(--mono); font-size: 9px; font-weight: 600; letter-spacing: 0.5px;
+    padding: 2px 7px; border-radius: 20px;
+  }
+  .badge-sec { background: rgba(34,197,94,0.15); color: var(--green); }
+  .badge-open { background: rgba(239,68,68,0.15); color: var(--red); }
+
+  /* ── Empty state ── */
+  .empty-state {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 48px 24px; gap: 12px; color: var(--muted);
+    font-family: var(--mono); font-size: 12px; text-align: center;
+  }
+  .empty-icon { font-size: 36px; opacity: 0.3; }
+
+  /* ── Bottom log ── */
+  .log-panel {
+    margin-top: 24px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+    overflow: hidden;
+  }
+  .log-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+    font-size: 12px; font-family: var(--mono); color: var(--muted);
+  }
+  .log-header span { color: var(--text); font-weight: 600; }
+  .log-clear { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 11px; font-family: var(--mono); transition: color 0.2s; }
+  .log-clear:hover { color: var(--red); }
+  .log-body {
+    padding: 14px 20px; max-height: 180px; overflow-y: auto;
+    font-family: var(--mono); font-size: 11px; line-height: 1.8;
+  }
+  .log-body::-webkit-scrollbar { width: 3px; }
+  .log-body::-webkit-scrollbar-thumb { background: var(--border); }
+  .log-line { display: flex; gap: 12px; }
+  .log-time { color: var(--muted); flex-shrink: 0; }
+  .log-msg-wifi { color: var(--cyan); }
+  .log-msg-bt   { color: var(--violet); }
+  .log-msg-sys  { color: var(--muted); }
+  .log-msg-err  { color: var(--red); }
+
+  footer {
+    text-align: center; padding: 20px;
+    font-size: 11px; color: var(--muted); font-family: var(--mono);
+    border-top: 1px solid var(--border);
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">📡</div>
+      <div class="logo-text">NET<span>SCAN</span></div>
+    </div>
+    <div class="header-status">
+      <div class="pulse-dot" id="serverDot" style="background:var(--red)"></div>
+      <span id="serverStatus">Connecting to backend…</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Controls -->
+    <div class="controls">
+      <button class="btn btn-primary" id="btnScan" onclick="startScan()">⟳ &nbsp;Start Scan</button>
+      <button class="btn btn-stop" id="btnStop" onclick="stopScan()" disabled>◼ &nbsp;Stop</button>
+      <button class="btn btn-secondary" onclick="clearAll()">⌫ &nbsp;Clear</button>
+      <div class="scan-indicator" id="scanIndicator">
+        <div class="scan-spin"></div>
+        <span id="scanLabel">SCANNING…</span>
+      </div>
+    </div>
+
+    <!-- Main grid -->
+    <div class="grid">
+
+      <!-- WiFi Panel -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <div class="panel-icon icon-wifi">📶</div>
+            <div class="panel-label">
+              <h2>WiFi Networks</h2>
+              <p>IEEE 802.11 a/b/g/n/ac/ax</p>
+            </div>
+          </div>
+          <div class="panel-count wifi" id="wifiCount">0</div>
+        </div>
+        <div class="radar-wrap">
+          <div class="radar">
+            <div class="radar-ring wifi idle" id="wr1"></div>
+            <div class="radar-ring wifi idle" id="wr2"></div>
+            <div class="radar-ring wifi idle" id="wr3"></div>
+            <div class="radar-ring wifi idle" id="wr4"></div>
+            <div class="radar-center wifi">📶</div>
+          </div>
+        </div>
+        <div class="device-list" id="wifiList">
+          <div class="empty-state">
+            <div class="empty-icon">🔍</div>
+            <div>No networks detected.<br>Press <b>Start Scan</b> to begin.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bluetooth Panel -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <div class="panel-icon icon-bt">🔵</div>
+            <div class="panel-label">
+              <h2>Bluetooth Devices</h2>
+              <p>BT Classic &amp; BLE 4.x / 5.x</p>
+            </div>
+          </div>
+          <div class="panel-count bt" id="btCount">0</div>
+        </div>
+        <div class="radar-wrap">
+          <div class="radar">
+            <div class="radar-ring bt idle" id="br1"></div>
+            <div class="radar-ring bt idle" id="br2"></div>
+            <div class="radar-ring bt idle" id="br3"></div>
+            <div class="radar-ring bt idle" id="br4"></div>
+            <div class="radar-center bt">🔵</div>
+          </div>
+        </div>
+        <div class="device-list" id="btList">
+          <div class="empty-state">
+            <div class="empty-icon">🔍</div>
+            <div>No devices detected.<br>Press <b>Start Scan</b> to begin.</div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /grid -->
+
+    <!-- Log -->
+    <div class="log-panel">
+      <div class="log-header">
+        <span>Scan Log</span>
+        <button class="log-clear" onclick="clearLog()">CLEAR LOG</button>
+      </div>
+      <div class="log-body" id="logBody"></div>
+    </div>
+
+  </main>
+
+  <footer>NETSCAN v1.0 &nbsp;·&nbsp; Python backend on localhost:5000 &nbsp;·&nbsp; Built for Ajithram</footer>
+</div>
+
+<script>
+  const API = 'http://localhost:5000';
+  let scanning = false;
+  let pollInterval = null;
+
+  // ── DOM refs ──
+  const wifiList  = document.getElementById('wifiList');
+  const btList    = document.getElementById('btList');
+  const wifiCount = document.getElementById('wifiCount');
+  const btCount   = document.getElementById('btCount');
+  const logBody   = document.getElementById('logBody');
+  const btnScan   = document.getElementById('btnScan');
+  const btnStop   = document.getElementById('btnStop');
+  const scanInd   = document.getElementById('scanIndicator');
+  const serverDot = document.getElementById('serverDot');
+  const serverTxt = document.getElementById('serverStatus');
+
+  // ── Server health ──
+  async function checkServer() {
+    try {
+      const r = await fetch(`${API}/health`, { signal: AbortSignal.timeout(2000) });
+      if (r.ok) {
+        serverDot.style.background = 'var(--green)';
+        serverTxt.textContent = 'Backend connected';
+        return true;
+      }
+    } catch {}
+    serverDot.style.background = 'var(--red)';
+    serverTxt.textContent = 'Backend offline — run server.py';
+    return false;
+  }
+
+  // ── Radar animation ──
+  function setRadar(type, active) {
+    const prefix = type === 'wifi' ? 'wr' : 'br';
+    for (let i = 1; i <= 4; i++) {
+      const el = document.getElementById(`${prefix}${i}`);
+      if (active) el.classList.remove('idle');
+      else        el.classList.add('idle');
+    }
+  }
+
+  // ── Signal strength ──
+  function rssiClass(rssi) {
+    if (rssi >= -55) return 'rssi-strong';
+    if (rssi >= -75) return 'rssi-medium';
+    return 'rssi-weak';
+  }
+  function signalBars(rssi, type) {
+    const level = rssi >= -55 ? 4 : rssi >= -65 ? 3 : rssi >= -75 ? 2 : 1;
+    const cls = type === 'wifi' ? 'on-wifi' : 'on-bt';
+    return `<div class="signal-bars">
+      ${[1,2,3,4].map(i => `<div class="bar${i<=level?' '+cls:''}"></div>`).join('')}
+    </div>`;
+  }
+
+  // ── Log ──
+  function log(msg, type = 'sys') {
+    const t = new Date().toLocaleTimeString('en-US', { hour12: false });
+    const div = document.createElement('div');
+    div.className = 'log-line';
+    div.innerHTML = `<span class="log-time">[${t}]</span><span class="log-msg-${type}">${msg}</span>`;
+    logBody.appendChild(div);
+    logBody.scrollTop = logBody.scrollHeight;
+    // keep max 200 lines
+    while (logBody.children.length > 200) logBody.removeChild(logBody.firstChild);
+  }
+
+  function clearLog() { logBody.innerHTML = ''; }
+
+  // ── Render WiFi ──
+  function renderWifi(networks) {
+    if (!networks || networks.length === 0) {
+      wifiList.innerHTML = '<div class="empty-state"><div class="empty-icon">📡</div><div>No WiFi networks found.</div></div>';
+      wifiCount.textContent = '0';
+      return;
+    }
+    wifiCount.textContent = networks.length;
+    wifiList.innerHTML = networks.map(n => `
+      <div class="device-item">
+        <div class="device-signal">${signalBars(n.signal, 'wifi')}</div>
+        <div class="device-info">
+          <div class="device-name">${escHtml(n.ssid || '(Hidden Network)')}</div>
+          <div class="device-meta">
+            <span>${escHtml(n.bssid)}</span>
+            ${n.channel ? `<span>CH ${n.channel}</span>` : ''}
+            ${n.frequency ? `<span>${n.frequency} GHz</span>` : ''}
+            <span class="badge ${n.security && n.security !== 'Open' ? 'badge-sec' : 'badge-open'}">${escHtml(n.security || 'Open')}</span>
+          </div>
+        </div>
+        <div class="device-rssi ${rssiClass(n.signal)}">${n.signal} dBm</div>
+      </div>
+    `).join('');
+  }
+
+  // ── Render Bluetooth ──
+  function renderBt(devices) {
+    if (!devices || devices.length === 0) {
+      btList.innerHTML = '<div class="empty-state"><div class="empty-icon">🔵</div><div>No Bluetooth devices found.</div></div>';
+      btCount.textContent = '0';
+      return;
+    }
+    btCount.textContent = devices.length;
+    btList.innerHTML = devices.map(d => `
+      <div class="device-item">
+        <div class="device-signal">${signalBars(d.rssi ?? -80, 'bt')}</div>
+        <div class="device-info">
+          <div class="device-name">${escHtml(d.name || 'Unknown Device')}</div>
+          <div class="device-meta">
+            <span>${escHtml(d.address)}</span>
+            ${d.type ? `<span>${escHtml(d.type)}</span>` : ''}
+            ${d.paired !== undefined ? `<span>${d.paired ? '🔗 Paired' : 'Unpaired'}</span>` : ''}
+          </div>
+        </div>
+        <div class="device-rssi ${rssiClass(d.rssi ?? -80)}">${d.rssi ?? '—'} ${d.rssi ? 'dBm' : ''}</div>
+      </div>
+    `).join('');
+  }
+
+  // ── Fetch data ──
+  async function fetchData() {
+    try {
+      const r = await fetch(`${API}/scan`, { signal: AbortSignal.timeout(15000) });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+
+      renderWifi(data.wifi);
+      renderBt(data.bluetooth);
+
+      const newW = (data.wifi || []).length;
+      const newB = (data.bluetooth || []).length;
+      if (newW > 0) log(`Found ${newW} WiFi network(s)`, 'wifi');
+      if (newB > 0) log(`Found ${newB} Bluetooth device(s)`, 'bt');
+
+    } catch (e) {
+      log(`Scan error: ${e.message}`, 'err');
+    }
+  }
+
+  // ── Start / Stop ──
+  async function startScan() {
+    const ok = await checkServer();
+    if (!ok) { log('Cannot reach backend. Start server.py first.', 'err'); return; }
+
+    scanning = true;
+    btnScan.disabled = true;
+    btnStop.disabled = false;
+    scanInd.classList.add('active');
+    setRadar('wifi', true);
+    setRadar('bt', true);
+    log('Scan started', 'sys');
+
+    await fetchData();
+    pollInterval = setInterval(fetchData, 8000);
+  }
+
+  function stopScan() {
+    scanning = false;
+    clearInterval(pollInterval);
+    btnScan.disabled = false;
+    btnStop.disabled = true;
+    scanInd.classList.remove('active');
+    setRadar('wifi', false);
+    setRadar('bt', false);
+    log('Scan stopped', 'sys');
+  }
+
+  function clearAll() {
+    stopScan();
+    wifiList.innerHTML  = '<div class="empty-state"><div class="empty-icon">🔍</div><div>No networks detected.<br>Press <b>Start Scan</b> to begin.</div></div>';
+    btList.innerHTML    = '<div class="empty-state"><div class="empty-icon">🔍</div><div>No devices detected.<br>Press <b>Start Scan</b> to begin.</div></div>';
+    wifiCount.textContent = '0';
+    btCount.textContent   = '0';
+    clearLog();
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // Init
+  checkServer();
+  log('NetScan initialized', 'sys');
+</script>
+</body>
+</html>
